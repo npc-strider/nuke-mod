@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "nuke-mod",
+  "version": "${version}",
+
+  "name": "Yet another nuke mod",
+  "description": "Yet another description",
+  "authors": [
+    "npc_strider"
+  ],
+  "contact": {
+    "homepage": "https://npc-strider.github.io/",
+    "sources": "https://github.com/npc-strider/NukeMod"
+  },
+
+  "license": "GPL-3.0",
+  "icon": "assets/nuke-mod/icon.png",
+
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "io.github.npc_strider.NukeMod.NukeMod"
+    ],
+    "client": [
+      "io.github.npc_strider.NukeMod.NukeModClient"
+    ]
+  },
+  "mixins": [
+    "NukeMod.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=0.7.4",
+    "fabric": "*",
+    "minecraft": "1.16.x"
+  },
+  "suggests": {
+    "another-mod": "*"
+  }
+}

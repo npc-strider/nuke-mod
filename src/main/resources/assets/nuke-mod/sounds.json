@@ -1,0 +1,14 @@
+{
+    "fission-alarm": {
+        "subtitle": "subtitles.nuke-mod.fission-alarm",
+        "sounds": [
+            "nuke-mod:fission-alarm"
+        ]
+    },
+    "fission-explosion": {
+        "subtitle": "subtitles.nuke-mod.fission-explosion",
+        "sounds": [
+            "nuke-mod:fission-explosion"
+        ]
+    }
+}

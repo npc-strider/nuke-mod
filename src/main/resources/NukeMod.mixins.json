@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "io.github.npc_strider.NukeMod.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+    "FireMixin"
+  ],
+  "client": [
+    "ClientEntityMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
