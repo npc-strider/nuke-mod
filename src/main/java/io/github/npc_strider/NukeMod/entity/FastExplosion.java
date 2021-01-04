@@ -1,26 +1,25 @@
 package io.github.npc_strider.NukeMod.entity;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import io.github.npc_strider.NukeMod.NukeMod;
 import io.github.npc_strider.NukeMod.NukeModClient;
 import io.github.npc_strider.NukeMod.constant.TransformConstants;
-import io.github.npc_strider.NukeMod.constant.TransformConstants.*;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.Material;
+import net.minecraft.block.MaterialColor;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
+import net.minecraft.entity.FallingBlockEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
@@ -33,6 +32,11 @@ public class FastExplosion {
     private final Vec3d origin;
     private final Entity entity;
 
+    private static Map<Material,Block> transformMaterial = TransformConstants.transformMaterial;
+    private static Map<Material,List<Block>> transformToFallingTile = TransformConstants.transformToFallingTile;
+    private static Block[] gravitize = TransformConstants.gravitize;
+    //Probably should add this stuff to a config file for user accessibility... //Keep it short to reduce checks.
+
     public FastExplosion(Entity entity, Vec3d radius, Vec3d effectRadius, Vec3d origin, World world) {
         this.radius = radius;
         this.effectRadius = effectRadius;
@@ -41,73 +45,85 @@ public class FastExplosion {
         this.entity = entity;
     }
 
-    private void removeTiles() {
-        double radiusX = this.radius.getX();
-        double radiusY = this.radius.getY();
-        double radiusZ = this.radius.getZ();
+    @FunctionalInterface
+    interface FiveFunction<_0, _1, _2, _3, _4, _5> {
+        public _5 apply(_0 A, _1 B, _2 C, _3 D, _4 E);
+    }
+
+    private void iterate3space(Vec3d radius, FiveFunction<Block, BlockState, BlockPos, World, Double, Void> function) {
+        double radiusX = radius.getX();
+        double radiusY = radius.getY();
+        double radiusZ = radius.getZ();
         World wld = this.world;
         for (double z = -radiusZ; z <= radiusZ; ++z) { //Note to self - don't try and parallize things...
             for (double y = -radiusY; y <= radiusY; ++y) {
                 for (double x = -radiusX; x <= radiusX; ++x) {
                     Vec3d d = new Vec3d(x, y, z);
                     Vec3d ellipse_ =  d.multiply(1/radiusZ, 1/radiusY, 1/radiusX);
-                    double ellipseFactor = ellipse_.dotProduct(ellipse_);
+                    Double ellipseFactor = ellipse_.dotProduct(ellipse_);
                     BlockPos pos = new BlockPos(d.add(this.origin));
                     BlockState blockState = wld.getBlockState(pos);
                     Block block = blockState.getBlock();
-                    // System.out.println("Position "+x+","+y+","+z+"  "+ellipseFactor );
-                    if (blockState.getMaterial() != Material.AIR && ellipseFactor < 1 && block.getBlastResistance() < 1e6) {   //Barrier and Adminium has a blast resistance of 3.6e+6 -- So this is OK!
-                        // System.out.println("Removed "+block.getName().asString() );
-                        if (!wld.removeBlock(pos, false)) {
-                            // System.out.println("Fluid");
-                            wld.setBlockState(pos, Blocks.AIR.getDefaultState(), 3); //This handles fluid.
-                        }
-                    }
+
+                    function.apply(block, blockState, pos, wld, ellipseFactor);
                 }
             }
         }
     }
 
-    private static Map<Material,Block> transformMaterial = TransformConstants.transformMaterial;
-    private static Map<Material,List<Block>> transformToFallingTile = TransformConstants.transformToFallingTile;
 
-    private void effectTiles() {
-        double radiusX = this.effectRadius.getX();
-        double radiusY = this.effectRadius.getY();
-        double radiusZ = this.effectRadius.getZ();
-        World wld = this.world;
-        for (double z = -radiusZ; z <= radiusZ; ++z) { //Note to self - don't try and parallize things...
-            for (double y = -radiusY; y <= radiusY; ++y) {
-                for (double x = -radiusX; x <= radiusX; ++x) {
-                    Vec3d d = new Vec3d(x, y, z);
-                    Vec3d ellipse_ =  d.multiply(1/radiusZ, 1/radiusY, 1/radiusX);
-                    double ellipseFactor = ellipse_.dotProduct(ellipse_);
-                    BlockPos pos = new BlockPos(d.add(this.origin));
-                    BlockState blockState = wld.getBlockState(pos);
-                    Block block = blockState.getBlock();
-                    Material mat = blockState.getMaterial();
-                    if (mat != Material.AIR && block.getBlastResistance() < 1e6 && ellipseFactor < wld.random.nextDouble() && ellipseFactor < 1) {
-                        if (transformMaterial.containsKey(mat)) {
-                            wld.setBlockState(pos, transformMaterial.get(mat).getDefaultState());
-                        } else if (transformToFallingTile.containsKey(mat)) {           //Prevent massive lag from creating falling entities - ensures gravity affected tiles have a solid tile beneath.
-                            Material matBelow = wld.getBlockState(pos.down()).getMaterial();
-                            if (matBelow != Material.AIR && matBelow != Material.AGGREGATE) {
-                                wld.setBlockState(pos, transformToFallingTile.get(mat).get(0).getDefaultState());
-                            } else {
-                                wld.setBlockState(pos, transformToFallingTile.get(mat).get(1).getDefaultState());
-                            }
-                        } else if (mat.isBurnable() && wld.getBlockState(pos.up()).getMaterial() == Material.AIR) {
-                            wld.setBlockState(pos.up(), Blocks.FIRE.getDefaultState());
-                        }
-                        
-                        //else if (transform.containsKey(block)) {
-                        //     wld.setBlockState(pos, transform.get(block).getDefaultState());
-                        // }
-                    }
-                }
+    private Void removeTiles(Block block, BlockState blockState, BlockPos pos, World wld, double ellipseFactor) {
+        // System.out.println("Position "+x+","+y+","+z+"  "+ellipseFactor );
+        if (blockState.getMaterial() != Material.AIR && !(Arrays.asList(gravitize).contains(block)) && ellipseFactor < 1 && block.getBlastResistance() < 1e6) {   //Barrier and Adminium has a blast resistance of 3.6e+6 -- So this is OK!
+            // System.out.println("Removed "+block.getName().asString() );
+            if (!wld.removeBlock(pos, false)) { //need to remove even if we spawn a FallingBlockEntity.
+                // System.out.println("Fluid");
+                wld.setBlockState(pos, Blocks.AIR.getDefaultState(), 3); //This handles fluid.
             }
         }
+        return null;
     }
+
+    private Void effectTiles(Block block, BlockState blockState, BlockPos pos, World wld, double ellipseFactor) {
+        Material mat = blockState.getMaterial();
+        if (mat != Material.AIR && !(Arrays.asList(gravitize).contains(block)) && block.getBlastResistance() < 1e6 && ellipseFactor < wld.random.nextDouble() && ellipseFactor < 1) {
+            if (transformMaterial.containsKey(mat)) {
+                wld.setBlockState(pos, transformMaterial.get(mat).getDefaultState());
+            } else if (transformToFallingTile.containsKey(mat)) {           //Prevent massive lag from creating falling entities - ensures gravity affected tiles have a solid tile beneath.
+                Material matBelow = wld.getBlockState(pos.down()).getMaterial();
+                if (matBelow != Material.AIR && matBelow != Material.AGGREGATE) {
+                    wld.setBlockState(pos, transformToFallingTile.get(mat).get(0).getDefaultState());
+                } else {
+                    wld.setBlockState(pos, transformToFallingTile.get(mat).get(1).getDefaultState());
+                }
+            } else if (mat == Material.AGGREGATE) {
+                MaterialColor col = block.getDefaultMaterialColor();
+                if (TransformConstants.glassColorMap.containsKey(col)) {
+                    wld.setBlockState(pos, TransformConstants.glassColorMap.get(col).getDefaultState());
+                } else {
+                    wld.setBlockState(pos, Blocks.GLASS.getDefaultState());
+                }
+            } else if (mat.isBurnable() && wld.getBlockState(pos.up()).getMaterial() == Material.AIR) {
+                wld.setBlockState(pos.up(), Blocks.FIRE.getDefaultState());
+            }
+            
+            //else if (transform.containsKey(block)) {
+            //     wld.setBlockState(pos, transform.get(block).getDefaultState());
+            // }
+        }
+        return null;
+    }
+
+    private Void gravitizeTiles(Block block, BlockState blockState, BlockPos pos, World wld, double ellipseFactor) {
+        if (blockState.getMaterial() != Material.AIR && Arrays.asList(gravitize).contains(block)/* && block.getBlastResistance() < 1e6 */&& ellipseFactor < 1) {    //Let's assume all blocks in the gravitize list are intended and don't have a large blast resistance.
+            FallingBlockEntity falling = new FallingBlockEntity(wld, (double)pos.getX()+0.5D, (double)pos.getY(), (double)pos.getZ()+0.5D, blockState);
+            //Not going to apply a velocity - seems like we need the coordinates to be exactly within a block in order to not drop as an item.
+            wld.spawnEntity(falling);
+            System.out.println(block.toString()+' '+pos.toString());
+        }
+        return null;
+    }
+
 
     private void damageEntities() {
         List<Entity> list = this.world.getOtherEntities(this.entity, new Box(this.origin.subtract(effectRadius), this.origin.add(effectRadius)));
@@ -115,8 +131,8 @@ public class FastExplosion {
             Entity entity = (Entity)list.get(x);
             Double distance = entity.getPos().distanceTo(this.origin);
             Double effectFactor = Math.exp(-(0.01*distance)*(0.01*distance));   //IMPORTANT NOTE: We're treating all distances with the same effect falloff, but we need to use the ellipse formulae to calculate different falloffs that follow the ellipse shape.
-            entity.setVelocity(entity.getVelocity().add(entity.getPos().subtract(this.origin).add(0,0.2,0)).normalize().multiply(20*effectFactor)); //Knockback
-            if (!entity.isImmuneToExplosion() && entity.isLiving()) {
+            entity.setVelocity(entity.getVelocity().add(entity.getPos().subtract(this.origin).add(0,0.2,0)).normalize().multiply(20.0D*effectFactor)); //Knockback
+            if (entity.getType() != EntityType.FALLING_BLOCK && !entity.isImmuneToExplosion() && entity.isLiving()) {   //Are falling blocks living? ::bigthink::
                 LivingEntity liveEntity = (LivingEntity)entity;
                 StatusEffects.POISON.applyUpdateEffect((LivingEntity)entity, 5);
                 // System.out.println(effectFactor);
@@ -149,9 +165,11 @@ public class FastExplosion {
             this.world.addParticle(NukeModClient.BIG_FOOKING_EXPLOSION_EMITTER, true, this.origin.getX(), this.origin.getY(), this.origin.getZ(), 1.0D, 0.0D, 0.0D);
             this.world.addParticle(NukeModClient.BIG_FOOKING_SMOKE_EMITTER, true, this.origin.getX(), this.origin.getY(), this.origin.getZ(), 1.0D, 0.0D, 0.0D);
         } else {
-            removeTiles();
-            effectTiles();
-            damageEntities();   //Apply damage to items created to reduce lag.
+            // removeTiles();
+            iterate3space(this.radius, this::removeTiles);
+            iterate3space(this.effectRadius, this::effectTiles);
+            damageEntities();   //Apply damage to items created to reduce lag. Make sure this is before gravitize to keep falling tiles in block (not item) form.
+            iterate3space(this.radius, this::gravitizeTiles);
         }  
     }
 }
